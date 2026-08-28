@@ -11,7 +11,7 @@
     </parent>
 
     <artifactId>auth-service</artifactId>
-    <name>Authentication & Authorization Service</name>
+    <name>Authentication &amp; Authorization Service</name>
 
     <dependencies>
         <dependency>
