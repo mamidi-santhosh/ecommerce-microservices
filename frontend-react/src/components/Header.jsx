@@ -1,7 +1,7 @@
 import React from 'react';
-import { ShoppingBag, Server, Activity, ShieldCheck, Zap } from 'lucide-react';
+import { ShoppingBag, Server, Activity, ShieldCheck, Zap, LogIn, UserCheck } from 'lucide-react';
 
-export default function Header({ cartCount, onOpenCart, activeTab, setActiveTab, serviceStatus }) {
+export default function Header({ cartCount, onOpenCart, activeTab, setActiveTab, serviceStatus, user, onOpenAuth }) {
   return (
     <header style={{
       position: 'sticky',
@@ -38,7 +38,7 @@ export default function Header({ cartCount, onOpenCart, activeTab, setActiveTab,
               NEXUS <span className="gradient-text">E-COMMERCE</span>
             </h1>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-              Saga Orchestrator • Spring Boot 3 Microservices
+              Saga Orchestrator • JWT Auth • Spring Boot 3 Microservices
             </p>
           </div>
         </div>
@@ -82,7 +82,7 @@ export default function Header({ cartCount, onOpenCart, activeTab, setActiveTab,
               transition: 'all 0.2s ease'
             }}
           >
-            <Server size={16} /> System Design Dashboard (10 Concepts)
+            <Server size={16} /> System Design Dashboard (11 Concepts)
           </button>
 
           <button
@@ -106,7 +106,7 @@ export default function Header({ cartCount, onOpenCart, activeTab, setActiveTab,
           </button>
         </nav>
 
-        {/* Microservice Health Indicators & Cart */}
+        {/* Microservice Health Indicators, Auth & Cart */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <div style={{
             display: 'flex',
@@ -121,9 +121,29 @@ export default function Header({ cartCount, onOpenCart, activeTab, setActiveTab,
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: serviceStatus ? '#10b981' : '#f43f5e', display: 'inline-block' }} />
             <span style={{ color: 'var(--text-secondary)' }}>Eureka Discovery:</span>
             <span className="code-font" style={{ color: serviceStatus ? '#6ee7b7' : '#fda4af', fontWeight: 600 }}>
-              {serviceStatus ? 'CONNECTED (5 Services)' : 'OFFLINE (Fallback Mode)'}
+              {serviceStatus ? 'CONNECTED (6 Services)' : 'OFFLINE (Fallback Mode)'}
             </span>
           </div>
+
+          <button
+            onClick={onOpenAuth}
+            style={{
+              background: user ? 'rgba(139, 92, 246, 0.2)' : 'rgba(255, 255, 255, 0.06)',
+              border: user ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid var(--border-color)',
+              color: user ? '#c4b5fd' : '#fff',
+              padding: '8px 14px',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            {user ? <UserCheck size={16} color="#a78bfa" /> : <LogIn size={16} />}
+            <span>{user ? user.email.split('@')[0] : 'Sign In / JWT'}</span>
+          </button>
 
           <button className="btn-primary" onClick={onOpenCart} style={{ position: 'relative' }}>
             <ShoppingBag size={18} />
