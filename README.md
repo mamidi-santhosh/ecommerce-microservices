@@ -1,7 +1,7 @@
 # 📱 MOBILE STUDY NOTES & E-COMMERCE MICROSERVICES ARCHITECTURE
 > **6-Day Mastery Guide & Real-Time Production Architecture**
 > 
-> *Designed with compact ASCII diagrams, high-contrast callouts, Redis integration, JWT Access/Refresh Token Security, and complete step-by-step endpoint breakdowns.*
+> *Designed with compact ASCII diagrams, high-contrast callouts, Redis integration, JWT Access/Refresh Token Security, complete step-by-step endpoint breakdowns, and under-the-hood execution flows.*
 
 ---
 
@@ -27,7 +27,7 @@
 
 # 🏗️ SYSTEM ARCHITECTURE WITH AUTH & REDIS
 
-### High-Level Topology Diagram
+### High-Level Topology Diagram (Mobile Screen Layout)
 
 ```
        📱 React Mobile/Web Frontend (Port 3000)
@@ -80,39 +80,130 @@
 
 ---
 
-# 🔐 DAY 6: JWT SECURITY (ACCESS TOKEN, REFRESH TOKEN & LOGOUT)
-
-### 💡 Core Concept: Dual-Token Architecture
-
-> 📱 **Handwritten Note**: 
-> 1. **Access Token (Short-Lived: 15 Mins)**: Sent in `Authorization: Bearer <token>` header with every request. Signed with Secret Key (HMAC-SHA256). API Gateway validates signature locally without calling DB.
-> 2. **Refresh Token (Long-Lived: 7 Days)**: Stored securely in database & `localStorage`. Used ONLY to request a new Access Token when expired.
-> 3. **Logout Flow**: Revokes and deletes the Refresh Token in the database so no future access tokens can be issued!
+# 🔄 UNDER-THE-HOOD COMPLETE END-TO-END EXECUTION FLOWS
 
 ---
 
-## 🔄 TOKEN LIFECYCLE & LOGOUT FLOW
+## ⚡ FLOW 1: USER LOGIN & JWT ISSUANCE FLOW
 
 ```
- ┌───────────────┐                  ┌───────────────┐                  ┌───────────────┐
- │ React Client  │                  │  API Gateway  │                  │ Auth Service  │
- └───────┬───────┘                  └───────┬───────┘                  └───────┬───────┘
-         │                                  │                                  │
-         │ 1. POST /api/auth/login ─────────┼─────────────────────────────────▶│
-         │                                  │                                  │ Generates AccessToken (15m)
-         │                                  │                                  │ Generates RefreshToken (7d)
-         │ 2. Returns Access + Refresh ◀────┼──────────────────────────────────┤
-         │                                  │                                  │
-         │ 3. POST /api/orders (Bearer) ───▶│                                  │
-         │    (Validates JWT locally)       │── 4. Passes X-User-Email ───────▶[Order Svc]
-         │                                  │                                  │
-         │ 5. Access Token Expired (401) ──▶│                                  │
-         │                                  │                                  │
-         │ 6. POST /api/auth/refresh ───────┼─────────────────────────────────▶│ Checks DB & Revoked status
-         │ 7. Returns New Access Token ◀────┼──────────────────────────────────┤ Returns New Access Token
-         │                                  │                                  │
-         │ 8. POST /api/auth/logout ────────┼─────────────────────────────────▶│ Deletes RefreshToken in DB!
-         │                                  │                                  │
+[React Client] ──(1) POST /api/auth/login──▶ [API Gateway :8080]
+                                                     │
+                           (2) Eureka IP Resolution  │
+                           lb://auth-service         ▼
+                                             [Auth Service :8085]
+                                                     │
+                           (3) Query DB & Password   │
+                           Verification              ▼
+                                             [JwtService]
+                                                     │
+                           (4) Generate AccessToken  │ (15 mins)
+                           Generate RefreshToken     ▼ (7 days in DB)
+[Store Tokens in LocalStorage] ◀──(5) AuthResponse HTTP 200──┘
+```
+
+### Technical Breakdown:
+1. User enters `email` & `password` in React UI modal (`AuthModal.jsx`).
+2. Request arrives at **API Gateway (Port 8080)**. Pathway matches `/api/auth/**` -> Bypass JWT filter (Public path).
+3. Gateway queries Eureka Client Cache for `auth-service` IP (`127.0.0.1:8085`).
+4. `AuthService` queries `UserRepository` for email match.
+5. If valid: `JwtService` creates **Access Token (15 mins)** with HMAC-SHA256 signature containing claims `email` & `role`.
+6. Creates UUID **Refresh Token (7 days)** and inserts record into `refresh_tokens` H2/MySQL database table.
+7. Returns JSON response containing both tokens to client.
+
+---
+
+## ⚡ FLOW 2: PROTECTED SAGA CHECKOUT EXECUTION (SUCCESS)
+
+```
+[React Client] ──(1) POST /api/orders (Authorization: Bearer <AccessToken>)──▶ [API Gateway :8080]
+                                                                                      │
+                                   (2) Validate JWT Signature & Expiry               │
+                                   Inject Header: X-User-Email                       ▼
+                                                                             [Order Service :8081]
+                                                                                      │
+                                   (3) Local DB Save: Order PENDING                  │
+                                   Saga Log: [CREATE_ORDER]                          ▼
+                                                                             [Saga Orchestrator]
+                                                                                      │
+                                   (4) Feign Call: reserveStock()                    │
+                                   Redis Lock: lock:sku:PROD-NEO-01                  ▼
+                                                                             [Inventory Service :8082]
+                                                                                      │
+                                   (5) Feign Call: processPayment()                  │
+                                   Resilience4j @CircuitBreaker (CLOSED)             ▼
+                                                                             [Payment Service :8083]
+                                                                                      │
+                                   (6) Payment Success (TX-99182)                    │
+                                   Update Order Status -> CONFIRMED                  ▼
+                                                                             [Decision Point: SUCCESS]
+                                                                              /                     \
+                                                                    (Async)  /                       \ (HTTP 200)
+                                                                            v                         v
+                                                                    [Notification Svc :8084]    [React UI]
+```
+
+### Technical Breakdown:
+1. User clicks **"Checkout"**. Frontend attaches `Authorization: Bearer <accessToken>` header.
+2. Request hits **API Gateway (Port 8080)** `AuthenticationFilter`.
+3. Gateway validates signature using shared secret key. Extracts `email` and injects header `X-User-Email`.
+4. Forwarded to `order-service:8081`. `OrderController` passes DTO to `SagaOrchestrator`.
+5. **Saga Step 1**: Local `@Transactional` creates Order `ORD-8F2A1C90` in status `PENDING`.
+6. **Saga Step 2**: OpenFeign dispatches HTTP call to `inventory-service:8082`. Inventory acquires Redis Lock `lock:sku:PROD-NEO-01`, deducts stock in MySQL, evicts Redis product cache, and returns success. Order status becomes `INVENTORY_RESERVED`.
+7. **Saga Step 3**: OpenFeign dispatches HTTP call to `payment-service:8083`. Resilience4j checks Circuit Status (`CLOSED`). Payment Service charges card, saves transaction, and returns success.
+8. **Saga Step 4**: Order status updated to `CONFIRMED`. Non-blocking `@Async` call dispatches to `notification-service:8084`. Returns HTTP 200 OK to React UI.
+
+---
+
+## ⚡ FLOW 3: FAILURE & SAGA COMPENSATING TRANSACTION FLOW
+
+```
+[Saga Step 1: Order PENDING] ──▶ [Saga Step 2: Stock Reserved (50 -> 49)]
+                                                │
+                                                ▼
+                                  [Saga Step 3: Payment Processed]
+                                                │
+                                       ❌ Payment Declined!
+                                                │
+                                                ▼
+                                  [SAGA ORCHESTRATOR DETECTS FAILURE]
+                                                │
+       ┌────────────────────────────────────────┴────────────────────────────────────────┐
+       │                                                                                 │
+       ▼                                                                                 ▼
+[1. Call Inventory Release Stock]                                            [2. Update Order Entity]
+  • Feign -> POST /api/inventory/release                                       • Status: CANCELLED_PAYMENT_FAILED
+  • Inventory Service Restocks (+1)                                            • Failure Reason: "Declined Card"
+  • Stock returned: 49 -> 50 🔄                                                • Save to MySQL DB
+```
+
+---
+
+## ⚡ FLOW 4: ACCESS TOKEN REFRESH FLOW
+
+```
+[React App API Call] ──▶ [API Gateway :8080] ──▶ ❌ HTTP 401 (Access Token Expired)
+         │
+         ▼
+[React App Interceptor] ──(POST /api/auth/refresh { refreshToken })──▶ [Auth Service :8085]
+                                                                                │
+                                           (Query RefreshToken in DB)           │
+                                           Check: Exists? Revoked? Expired?     ▼
+                                                                       [Generate New AccessToken]
+                                                                                │
+[Retry Original Checkout API Request] ◀──(Returns HTTP 200 { newAccessToken })──┘
+```
+
+---
+
+## ⚡ FLOW 5: LOGOUT FLOW
+
+```
+[User Clicks Logout] ──(POST /api/auth/logout { refreshToken })──▶ [Auth Service :8085]
+                                                                           │
+                                      (Find RefreshToken in DB)            │
+                                      Mark Revoked & Delete Record         ▼
+[Clear LocalStorage Access & Refresh Tokens] ◀──(HTTP 200 OK Logged Out)───┘
 ```
 
 ---
@@ -334,4 +425,4 @@ Below is the complete, detailed step-by-step breakdown of **EVERY SINGLE ENDPOIN
 ```
 
 ---
-*Spring Boot Microservices E-Commerce Architecture with Dual JWT Security.*
+*Complete 6-Day Mastery Notes with Dual JWT Security, Logout Mechanics, Visual Execution Flows & Comprehensive Endpoint Guide.*
