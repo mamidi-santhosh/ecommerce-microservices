@@ -23,6 +23,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+import com.ecommerce.order.event.OrderEvent;
+import com.ecommerce.order.event.OrderEventProducer;
+
 @Service
 public class SagaOrchestrator {
 
@@ -31,17 +34,20 @@ public class SagaOrchestrator {
     private final InventoryClient inventoryClient;
     private final PaymentClient paymentClient;
     private final NotificationClient notificationClient;
+    private final OrderEventProducer orderEventProducer;
 
     public SagaOrchestrator(OrderRepository orderRepository,
                             SagaLogRepository sagaLogRepository,
                             InventoryClient inventoryClient,
                             PaymentClient paymentClient,
-                            NotificationClient notificationClient) {
+                            NotificationClient notificationClient,
+                            OrderEventProducer orderEventProducer) {
         this.orderRepository = orderRepository;
         this.sagaLogRepository = sagaLogRepository;
         this.inventoryClient = inventoryClient;
         this.paymentClient = paymentClient;
         this.notificationClient = notificationClient;
+        this.orderEventProducer = orderEventProducer;
     }
 
     @Transactional
@@ -123,12 +129,25 @@ public class SagaOrchestrator {
         orderRepository.save(order);
         logSagaStep(orderId, "CONFIRM_ORDER", "COMPLETED", "Saga Orchestration Complete! Order CONFIRMED.");
 
-        // STEP 5: Async Notification Dispatch
+        // STEP 5: Kafka Event-Driven Message & Notification Dispatch
         try {
+            OrderEvent event = new OrderEvent(
+                    orderId,
+                    order.getCustomerEmail(),
+                    order.getSku(),
+                    order.getQuantity(),
+                    order.getTotalAmount(),
+                    order.getStatus().name(),
+                    "Order " + orderId + " confirmed successfully!",
+                    LocalDateTime.now()
+            );
+            orderEventProducer.sendOrderEvent(event);
+            logSagaStep(orderId, "KAFKA_EVENT_PUBLISHED", "DISPATCHED", "Published OrderEvent to Kafka topic [order-events-topic]");
+
             notificationClient.sendNotification(new NotificationRequest(orderId, order.getCustomerEmail(), "Your order " + orderId + " has been confirmed!", "EMAIL"));
             logSagaStep(orderId, "ASYNC_NOTIFICATION", "DISPATCHED", "Triggered @Async notification request to Notification Service");
         } catch (Exception e) {
-            System.err.println("Async notification trigger warning: " + e.getMessage());
+            System.err.println("Async notification / Kafka event trigger warning: " + e.getMessage());
         }
 
         return buildOrderResponse(order, orderId);
