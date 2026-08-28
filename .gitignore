@@ -1,0 +1,21 @@
+# Maven build outputs
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Node / React build outputs
+**/node_modules/
+**/build/
+**/dist/
+.idea/
+.vscode/
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
