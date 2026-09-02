@@ -17,30 +17,35 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 @Service
 public class AuthService {
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
+    private final PasswordEncoder passwordEncoder;
 
     @Value("${jwt.refresh-token-expiration-ms:604800000}")
     private long refreshTokenExpirationMs;
 
     public AuthService(UserRepository userRepository,
                        RefreshTokenRepository refreshTokenRepository,
-                       JwtService jwtService) {
+                       JwtService jwtService,
+                       PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtService = jwtService;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @PostConstruct
     public void initDefaultUser() {
         if (!userRepository.existsByEmail("user@example.com")) {
-            User demoUser = new User(null, "user@example.com", "password123", "Demo User", "ROLE_USER");
+            User demoUser = new User(null, "user@example.com", passwordEncoder.encode("password123"), "Demo User", "ROLE_USER");
             userRepository.save(demoUser);
-            System.out.println(">>> [AUTH SERVICE] Default Demo User initialized: user@example.com / password123");
+            System.out.println(">>> [AUTH SERVICE] Default Demo User initialized with BCrypt password: user@example.com / password123");
         }
     }
 
@@ -50,7 +55,7 @@ public class AuthService {
             return new AuthResponse(null, null, request.getEmail(), null, null, "Email is already registered!");
         }
 
-        User user = new User(null, request.getEmail(), request.getPassword(), request.getName(), "ROLE_USER");
+        User user = new User(null, request.getEmail(), passwordEncoder.encode(request.getPassword()), request.getName(), "ROLE_USER");
         userRepository.save(user);
 
         String accessToken = jwtService.generateAccessToken(user.getEmail(), user.getRole());
@@ -69,7 +74,7 @@ public class AuthService {
     @Transactional
     public AuthResponse login(LoginRequest request) {
         Optional<User> userOpt = userRepository.findByEmail(request.getEmail());
-        if (userOpt.isEmpty() || !userOpt.get().getPassword().equals(request.getPassword())) {
+        if (userOpt.isEmpty() || !passwordEncoder.matches(request.getPassword(), userOpt.get().getPassword())) {
             return new AuthResponse(null, null, request.getEmail(), null, null, "Invalid email or password!");
         }
 
