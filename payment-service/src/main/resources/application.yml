@@ -20,7 +20,8 @@ eureka:
     serviceUrl:
       defaultZone: http://localhost:8761/eureka/
   instance:
-    prefer-ip-address: true
+    prefer-ip-address: false
+    hostname: localhost
 
 resilience4j:
   circuitbreaker:

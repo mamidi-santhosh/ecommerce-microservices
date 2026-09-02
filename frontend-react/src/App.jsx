@@ -84,6 +84,7 @@ export default function App() {
       }
       return [...prev, { ...product, quantity: 1 }];
     });
+    setIsCartOpen(true);
   };
 
   const handleUpdateQty = (id, newQty) => {
