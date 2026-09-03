@@ -26,11 +26,11 @@ JVM Heap memory is divided into distinct pools managed by Garbage Collectors (e.
 | Tool | Purpose | How to Access |
 | :--- | :--- | :--- |
 | **Spring Boot Actuator** | Real-time heap metrics & heapdump download | `GET /actuator/metrics/jvm.memory.used`, `GET /actuator/heapdump` |
+| **Postman / Newman CLI** | Run entire Postman Collections under load | `newman run collection.json -n 500` |
+| **k6 / JMeter** | Multi-API scenario load generation | `k6 run load_test.js` |
 | **JDK `jcmd`** | Command-line diagnostic & Heap Dump capture | Included in JDK (`jcmd <pid> GC.heap_dump`) |
 | **JDK `jstat`** | Real-time GC stats & heap pool usage | Included in JDK (`jstat -gcutil <pid> 1000`) |
-| **VisualVM / JProfiler** | Live visual monitoring of heap graphs | GUI Desktop Tool |
 | **Eclipse MAT** | Deep Memory Leak Analysis (`.hprof` dumps) | Desktop Analysis App |
-| **k6 / JMeter** | High-concurrency load generation | CLI / GUI Load Generator |
 
 ---
 
@@ -46,10 +46,6 @@ java -Xms256m -Xmx512m \
      -jar app.jar
 ```
 
-* `-Xms256m`: Initial Heap Size (256 MB)
-* `-Xmx512m`: Maximum Allowed Heap Size (512 MB)
-* `-XX:+HeapDumpOnOutOfMemoryError`: Automatically generates `.hprof` file if Java runs out of memory!
-
 ---
 
 ## 🧪 4. Step-by-Step Heap Memory Testing Protocol
@@ -57,27 +53,44 @@ java -Xms256m -Xmx512m \
 ### STEP 1: Find Application Process ID (PID)
 ```bash
 jcmd -l
-# Output: 40464 com.ecommerce.auth.AuthServiceApplication
 ```
 
 ### STEP 2: Record Baseline Idle Memory
-Query Spring Boot Actuator or `jstat`:
 ```bash
-# Actuator metric
-curl http://localhost:8080/actuator/metrics/jvm.memory.used
-
-# jstat GC Monitoring (sample every 1 second)
+# Monitor GC activity (sample every 1 second)
 jstat -gcutil <PID> 1000
 ```
-* **Output columns**:
-  * `E`: Eden space usage (%)
-  * `O`: Old generation usage (%)
-  * `M`: Metaspace usage (%)
-  * `YGC`: Young GC count
-  * `FGC`: Full GC count (Should be close to 0!)
 
-### STEP 3: Execute Sustained Concurrent Load Test (k6 Script)
-Run a 10-minute load test simulating 200 concurrent users performing high-volume transactions:
+---
+
+### STEP 3: Execute Load Testing on Postman Collection / Multiple APIs
+
+#### 🏆 Method A: Using Postman Collection via Newman CLI (Recommended)
+You can run your entire exported Postman collection JSON file with `n` iterations or concurrent users directly from the command line:
+
+1. Install Newman (Postman CLI):
+   ```bash
+   npm install -g newman
+   ```
+2. Run your Postman Collection 500 times in sequence across all your APIs:
+   ```bash
+   newman run your_postman_collection.json -n 500
+   ```
+
+---
+
+#### ⚡ Method B: Using Postman GUI (Performance Test Tab)
+1. Open **Postman** ➔ Select your Collection.
+2. Click **Run Collection**.
+3. Select **Performance Tab**:
+   * **Virtual Users**: `50`
+   * **Test Duration**: `5 minutes`
+4. Click **Run** to fire concurrent traffic across all APIs in your collection while monitoring `jstat`!
+
+---
+
+#### 🔄 Method C: Dynamic Multi-API Scenario Script (k6)
+Create a `load_test.js` that cycles through all API endpoints (Login ➔ Fetch Products ➔ Place Order):
 
 ```javascript
 // load_test.js
@@ -86,56 +99,57 @@ import { check, sleep } from 'k6';
 
 export const options = {
   stages: [
-    { duration: '1m', target: 50 },  // Ramp up to 50 users
-    { duration: '5m', target: 200 }, // Sustained stress at 200 users
+    { duration: '1m', target: 20 },  // Ramp up to 20 users
+    { duration: '5m', target: 100 }, // Sustained load at 100 users
     { duration: '1m', target: 0 },   // Ramp down
   ],
 };
 
 export default function () {
-  const res = http.get('http://localhost:8080/api/products');
-  check(res, { 'status is 200': (r) => r.status === 200 });
-  sleep(0.1);
+  const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+
+  // 1. Auth Login API
+  const loginRes = http.post(`${BASE_URL}/api/auth/login`, JSON.stringify({
+    email: 'user@example.com',
+    password: 'password123'
+  }), { headers: { 'Content-Type': 'application/json' } });
+
+  const token = loginRes.json('accessToken');
+  const authHeaders = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
+
+  // 2. Fetch Products API
+  http.get(`${BASE_URL}/api/products`);
+
+  // 3. Place Order API
+  http.post(`${BASE_URL}/api/orders`, JSON.stringify({
+    customerEmail: 'user@example.com',
+    sku: 'PROD-NEO-01',
+    quantity: 1,
+    amount: 199.99
+  }), { headers: authHeaders });
+
+  sleep(0.2);
 }
 ```
-Run command: `k6 run load_test.js`
+Run command: `k6 run -e BASE_URL=http://localhost:8080 load_test.js`
+
+---
 
 ### STEP 4: Trigger Live Heap Dump Capture
-While under load or immediately after load stops, capture a Heap Dump:
+While under load or immediately after load stops:
 
-* **Method A (JDK `jcmd`)**:
-  ```bash
-  jcmd <PID> GC.heap_dump C:/dumps/app_heap_load.hprof
-  ```
-
-* **Method B (Spring Boot Actuator)**:
-  ```bash
-  curl -G http://localhost:8080/actuator/heapdump -o heapdump.hprof
-  ```
+```bash
+# Capture Heap Dump via jcmd
+jcmd <PID> GC.heap_dump ./live_heapdump.hprof
+```
 
 ---
 
 ## 🔍 5. Heap Dump Analysis in Eclipse MAT
 
-1. Open **Eclipse Memory Analyzer (MAT)** ➔ File ➔ Open Heap Dump ➔ Select `heapdump.hprof`.
+1. Open **Eclipse MAT** ➔ File ➔ Open Heap Dump ➔ Select `live_heapdump.hprof`.
 2. Select **"Leak Suspects Report"**.
-3. **Key Views to Inspect**:
-   * **Dominator Tree**: Displays objects consuming the largest percentage of Heap Memory.
-   * **Histogram**: Displays object class counts (e.g. 500,000 instances of `byte[]` or `java.util.HashMap$Node`).
-   * **GC Roots**: Trace paths keeping unreferenced objects alive in memory.
-
----
-
-## 🚩 6. Common Spring Boot Memory Leaks & Fixes
-
-1. **Unbounded Caches (`HashMap` / `ArrayList`)**:
-   * *Symptom*: OldGen (`O` column in `jstat`) steadily increases to 100% and never drops after GC.
-   * *Fix*: Replace custom static maps with **Caffeine Cache** / **Redis TTL** with explicit max size limits (`maximumSize(10000)`).
-
-2. **Unclosed DB ResultSets / Streams / HTTP Connections**:
-   * *Symptom*: Thousands of `HikariProxyConnection` or `Netty` connection buffers taking up heap.
-   * *Fix*: Always use try-with-resources (`try (Connection conn = ...)`) or Spring Data JPA repositories.
-
-3. **ThreadLocal Variable Leaks in Tomcat Worker Threads**:
-   * *Symptom*: User session data persists across requests on Tomcat thread pool.
-   * *Fix*: Always invoke `ThreadLocal.remove()` inside a `finally` block or Servlet Filter `afterCompletion()`.
+3. Inspect **Dominator Tree** & **Histogram** to detect memory leaks.
