@@ -30,7 +30,6 @@ JVM Heap memory is divided into distinct pools managed by Garbage Collectors (e.
 | **Process Discovery** | **JDK `jcmd`** | Discover Tomcat Java PID: `jcmd -l` |
 | **GC Monitoring** | **JDK `jstat`** | Real-time GC stats: `jstat -gcutil <PID> 1000` |
 | **Heap Dump Capture**| **JDK `jcmd`** | Capture `.hprof` snapshot: `jcmd <PID> GC.heap_dump ./tomcat_heap.hprof` |
-| **Heap Analysis** | **Antigravity AI** | AI Chat analysis of heap metrics & dumps (Zero GUI required) |
 
 ---
 
@@ -97,9 +96,9 @@ jcmd <PID> GC.heap_dump ./tomcat_heapdump.hprof
 
 ---
 
-### STEP 5: Automated Memory Analysis via Antigravity AI
-You do **not** need to install external GUI tools like Eclipse MAT. Simply prompt Antigravity AI in chat:
+### STEP 5: Automated Memory Analysis
+You do **not** need to install external GUI tools like Eclipse MAT. Simply prompt in chat:
 
 > *"I have captured `tomcat_heapdump.hprof` for my Tomcat WAR application. Use the `springboot-heap-memory-testing` skill to analyze the heap memory, check `jstat` metrics, and report any memory leaks."*
 
-Antigravity AI will inspect the dump metrics, identify memory-hogging objects, check for thread/connection leaks, and deliver a detailed performance report!
+Copilot will inspect the dump metrics, identify memory-hogging objects, check for thread/connection leaks, and deliver a detailed performance report!
